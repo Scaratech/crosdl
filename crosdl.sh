@@ -4,7 +4,6 @@ set -e
 CACHE_DIR="$HOME/.cache/crosdl"
 CROS_RELEASE_DATA="https://cdn.jsdelivr.net/gh/MercuryWorkshop/chromeos-releases-data/data.json"
 BOARDS_CACHE="$CACHE_DIR/boards.txt"
-MANIFESTS_DIR="$CACHE_DIR/manifests"
 
 function info() {
     echo -e "\e[34m[INFO]\e[0m $1"
@@ -21,7 +20,7 @@ function success() {
 
 function help_msg() {
     cat << EOF
-crosdl (v1.1.0) - A CLI for downloading ChromeOS related images
+crosdl (v1.2.0) - A CLI for downloading ChromeOS related images
 
 USAGE:
     crosdl [OPTIONS]
@@ -34,6 +33,8 @@ OPTIONS:
     -pv <version>       Filter by platform version (only for reco, optional, defaults to latest)
     -o <path>           Output file path (required)
     --help              Show this help message
+    --clear-cache       Clear cached data
+    --cache             Populate cache
 CREDIT:
     Author: Scaratek (https://scaratek.dev)
         Source code license: GPL-v3
@@ -41,6 +42,27 @@ CREDIT:
     Recovery image DB: https://github.com/MercuryWorkshop/chromeos-releases-data
     RMA shim source: https://cros.download/shims
 EOF
+    exit 0
+}
+
+function clear_cache() {
+    if [ -d "$CACHE_DIR" ]; then
+        rm -rf "$CACHE_DIR"
+        success "Cache cleared"
+        exit 0
+    fi
+}
+
+function cache_data() {
+    mkdir -p "$CACHE_DIR"
+
+    info "Caching release information"
+    wget -q -O "$CACHE_DIR/data.json" "$CROS_RELEASE_DATA"
+
+    info "Caching boards index"
+    wget -q -O "$BOARDS_CACHE" "https://cdn.cros.download/boards.txt"
+
+    success "Cache populated"
     exit 0
 }
 
@@ -225,6 +247,8 @@ while [[ $# -gt 0 ]]; do
             shift 2
             ;;
         --help) help_msg;;
+        --clear-cache) clear_cache; shift;;
+        --cache) cache_data; shift;;
         "") shift;;
         *) error "Unknown option: $1";;
     esac

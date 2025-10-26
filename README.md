@@ -13,7 +13,8 @@ $ curl https://scaratek.dev/install_crosdl.sh | bash
 ```
 
 ## Usage
-Please note these download as zip archives !!!
+- Please note these download as zip archives !!!
+- Cache is stored in `~/.cache/crosdl`
 ```sh
 # Flags
 ## -t = type (reco = recovery image, shim = rma shim)
@@ -23,6 +24,9 @@ Please note these download as zip archives !!!
 ## -cv = filter by chrome version (Only for reco) (optional, defaults to latest)
 ## -pv = filter by platform version (Only for reco) (optional, defaults to latest)
 ## -o = path to download to
+## --help = Help message
+## --clear-cache = Clear cache
+## --cache = Populate cache
 
 # Examples: 
 crosdl -t reco -b octopus -cv 141 -o output.zip
