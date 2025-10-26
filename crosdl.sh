@@ -4,6 +4,7 @@ set -e
 CACHE_DIR="$HOME/.cache/crosdl"
 CROS_RELEASE_DATA="https://cdn.jsdelivr.net/gh/MercuryWorkshop/chromeos-releases-data/data.json"
 BOARDS_CACHE="$CACHE_DIR/boards.txt"
+MANIFESTS_DIR="$CACHE_DIR/manifests"
 
 function info() {
     echo -e "\e[34m[INFO]\e[0m $1"
@@ -16,6 +17,16 @@ function error() {
 
 function success() {
     echo -e "\e[32m[SUCCESS]\e[0m $1"
+}
+
+function safe_mkdir() {
+    local dir="$1"
+
+    if [[ -z "$dir" ]]; then
+        error "Cannot create an empty directory"
+    fi
+
+    mkdir -p -- "$dir" || error "Failed to create directory: $dir"
 }
 
 function help_msg() {
@@ -54,13 +65,13 @@ function clear_cache() {
 }
 
 function cache_data() {
-    mkdir -p "$CACHE_DIR"
+    safe_mkdir "$CACHE_DIR"
 
     info "Caching release information"
-    wget -q -O "$CACHE_DIR/data.json" "$CROS_RELEASE_DATA"
+    wget -q -O "$CACHE_DIR/data.json" "$CROS_RELEASE_DATA" || error "Failed to cache release data"
 
     info "Caching boards index"
-    wget -q -O "$BOARDS_CACHE" "https://cdn.cros.download/boards.txt"
+    wget -q -O "$BOARDS_CACHE" "https://cdn.cros.download/boards.txt" || error "Failed to cache boards index"
 
     success "Cache populated"
     exit 0
@@ -91,14 +102,33 @@ function download_shim() {
     fi
     
     local shim_url="https://dl.cros.download/files/$board/$board.zip"
-    local shim_size=$(echo "$http_res" | grep -i "Content-Length:" | tail -1 | awk '{print $2}' | tr -d '\r')
-    
+    local http_response
+
+    if ! http_response=$(wget --spider --server-response "$shim_url" 2>&1); then
+        error "Shim not found for board '$board' (URL: $shim_url)"
+    fi
+
+    if ! echo "$http_response" | grep -q "HTTP/.* 200"; then
+        error "Shim not found for board '$board' (URL: $shim_url)"
+    fi
+
+    local shim_size=$(echo "$http_response" | grep -i "Content-Length:" | tail -1 | awk '{print $2}' | tr -d '\r')
+    local size_pretty=$(numfmt --format %.2f --to=iec "$shim_size" 2>/dev/null || echo "$shim_size bytes")
+
     info "Found shim:"
     echo "  Board: $board"
+    echo "  Size: $size_pretty"
     echo "  URL: $shim_url"
     
     info "Downloading shim"
-    
+
+    local outdir
+    outdir=$(dirname -- "$output")
+
+    if [[ -n "$outdir" && "$outdir" != "." ]]; then
+        safe_mkdir "$outdir"
+    fi
+
     if wget -q --show-progress -O "$output" "$shim_url"; then
         success "Download complete: $output"
     else
@@ -164,7 +194,14 @@ function download_recovery() {
     echo "  URL: $image_url"
     
     info "Downloading to $output"
-    
+
+    local outdir
+    outdir=$(dirname -- "$output")
+
+    if [[ -n "$outdir" && "$outdir" != "." ]]; then
+        safe_mkdir "$outdir"
+    fi
+
     if wget -q --show-progress -O "$output" "$image_url"; then
         success "Download complete: $output"
     else
@@ -269,12 +306,13 @@ if [[ "$TYPE" != "reco" && "$TYPE" != "shim" ]]; then
     error "Invalid type: $TYPE (must be 'reco' or 'shim')"
 fi
 
-mkdir -p "$CACHE_DIR"
-mkdir -p "$MANIFESTS_DIR"
+safe_mkdir "$CACHE_DIR"
+safe_mkdir "$MANIFESTS_DIR"
 
 if [ ! -f "$CACHE_DIR/data.json" ]; then
     info "Caching release information"
-    wget -q -O "$CACHE_DIR/data.json" "$CROS_RELEASE_DATA"
+    safe_mkdir "$CACHE_DIR"
+    wget -q -O "$CACHE_DIR/data.json" "$CROS_RELEASE_DATA" || error "Failed to download release data"
 fi
 
 case "$TYPE" in
