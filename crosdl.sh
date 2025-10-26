@@ -21,7 +21,7 @@ function success() {
 
 function help_msg() {
     cat << EOF
-crosdl (v1.0.0) - A CLI for downloading ChromeOS related images
+crosdl (v1.1.0) - A CLI for downloading ChromeOS related images
 
 USAGE:
     crosdl [OPTIONS]
@@ -38,7 +38,6 @@ CREDIT:
     Author: Scaratek (https://scaratek.dev)
         Source code license: GPL-v3
         Repository: https://github.com/scaratech/crosdl
-        Notes: Parts of the shim downloader code were stolen from vk6
     Recovery image DB: https://github.com/MercuryWorkshop/chromeos-releases-data
     RMA shim source: https://cros.download/shims
 EOF
@@ -48,119 +47,40 @@ EOF
 function download_shim() {
     local board="$1"
     local output="$2"
-    local shim_dir="$CACHE_DIR/chunks/$board"
     
     info "Searching for shim for board: $board"
-    mkdir -p "$MANIFESTS_DIR"
-
-    local boards_index
+    
+    local boards_list
 
     if [ -f "$BOARDS_CACHE" ]; then
-        boards_index=$(cat "$BOARDS_CACHE")
+        boards_list=$(cat "$BOARDS_CACHE")
     else
         info "Downloading boards index"
 
-        if ! boards_index=$(wget -q -O- "https://cdn.cros.download/boards.txt"); then
+        if ! boards_list=$(wget -q -O- "https://cdn.cros.download/boards.txt"); then
             error "Failed to download boards index"
         fi
 
-        echo "$boards_index" > "$BOARDS_CACHE"
+        echo "$boards_list" > "$BOARDS_CACHE"
     fi
     
-    local shim_url_path
-    shim_url_path=$(echo "$boards_index" | grep "/$board/" | head -1)
-
-    if [ -z "$shim_url_path" ]; then
-        error "Board '$board' not found in shim database"
+    if ! echo "$boards_list" | grep -q "/$board/"; then
+        error "Board '$board' not found in shim list"
     fi
     
-    shim_url_path="${shim_url_path}.manifest"
-
-    local shim_url_dir=$(dirname "$shim_url_path")
-    local manifest_cache="$MANIFESTS_DIR/${board}_shim.json"
-    local shim_manifest
-    
-    if [ -f "$manifest_cache" ]; then
-        shim_manifest=$(cat "$manifest_cache")
-    else
-        info "Downloading manifest"
-
-        if ! shim_manifest=$(wget -q -O- "https://cdn.cros.download/$shim_url_path"); then
-            error "Failed to download manifest"
-        fi
-
-        echo "$shim_manifest" > "$manifest_cache"
-    fi
-    
-    local zip_size=$(echo "$shim_manifest" | jq -r '.size')
-    local zip_size_pretty=$(numfmt --format %.2f --to=iec "$zip_size" 2>/dev/null || echo "$zip_size bytes")
-    local shim_chunks=$(echo "$shim_manifest" | jq -r '.chunks[]')
-    local chunk_count=$(echo "$shim_chunks" | wc -l)
+    local shim_url="https://dl.cros.download/files/$board/$board.zip"
+    local shim_size=$(echo "$http_res" | grep -i "Content-Length:" | tail -1 | awk '{print $2}' | tr -d '\r')
     
     info "Found shim:"
-    echo "  Size: $zip_size_pretty"
-    echo "  Chunks: $chunk_count"
+    echo "  Board: $board"
+    echo "  URL: $shim_url"
     
-    mkdir -p "$shim_dir"
+    info "Downloading shim"
     
-    local i=0
-    local downloaded=0
-    local skipped=0
-    
-    for shim_chunk in $shim_chunks; do
-        i=$((i + 1))
-
-        local chunk_url="https://cdn.cros.download/$shim_url_dir/$shim_chunk"
-        local chunk_path="$shim_dir/$shim_chunk"
-        
-        if [ -f "$chunk_path" ]; then
-            local existing_size=$(stat -c%s "$chunk_path" 2>/dev/null || stat -f%z "$chunk_path" 2>/dev/null)
-
-            if [ "$existing_size" -gt 0 ]; then
-                skipped=$((skipped + 1))
-                continue
-            fi
-        fi
-        
-        printf "\r\e[34m[INFO]\e[0m Downloading shim chunk: %d/%d" "$i" "$chunk_count"
-
-        if wget -c -q "$chunk_url" -O "$chunk_path"; then
-            downloaded=$((downloaded + 1))
-        else
-            printf "\n"
-            error "Failed to download chunk $i"
-        fi
-    done
-    
-    printf "\n"
-    
-    if [ $skipped -gt 0 ]; then
-        info "Downloaded $downloaded chunks, skipped $skipped (already cached)"
-    fi
-    
-    info "Assembling shim file"
-    local temp_output="${output}.tmp" > "$temp_output"
-    
-    for shim_chunk in $shim_chunks; do
-        local chunk_path="$shim_dir/$shim_chunk"
-
-        if [ ! -f "$chunk_path" ]; then
-            error "Chunk missing: $chunk_path"
-        fi
-
-        cat "$chunk_path" >> "$temp_output"
-    done
-
-    mv "$temp_output" "$output"
-    local final_size=$(stat -c%s "$output" 2>/dev/null || stat -f%z "$output" 2>/dev/null)
-
-    if [ "$final_size" -eq "$zip_size" ]; then
-        success "Download complete: $output ($(numfmt --format %.2f --to=iec "$final_size" 2>/dev/null || echo "$final_size bytes"))"
-        info "Cleaning up chunks"
-
-        rm -rf "$shim_dir"
+    if wget -q --show-progress -O "$output" "$shim_url"; then
+        success "Download complete: $output"
     else
-        error "File size mismatch (Expected: $zip_size, Got: $final_size)"
+        error "Failed to download shim"
     fi
 }
 
